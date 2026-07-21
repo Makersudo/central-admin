@@ -10,15 +10,9 @@ const app = express();
 app.disable('x-powered-by');
 
 app.use(cors({
-  origin(origin, callback) {
-    if (!origin || env.nodeEnv === 'development' || env.corsOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error('Origem não autorizada pela Central CORS.'));
-  },
+  origin: true,
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 }));
 
 app.use(express.json());
