@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: central-admin-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: SUPABASE_URL
+        value: https://augeggvlijscaebcggvk.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1Z2VnZ3ZsaWpzY2FlYmNnZ3ZrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTk4MzU1MSwiZXhwIjoyMDk1NTU5NTUxfQ.GAyDM47edl59b0waLX79r79Y_boxPsTK4ox-jww1Un8
+      - key: ADMIN_EMAIL
+        value: admin@central.com
