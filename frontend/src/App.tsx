@@ -299,6 +299,12 @@ export function App() {
         }
       });
 
+      if (response.status === 401 || response.status === 403) {
+        alert('Sua sessão expirou. Faça login novamente.');
+        handleLogout();
+        return;
+      }
+
       if (response.ok) {
         const data = await safeJson(response);
         if (data) {
@@ -335,11 +341,17 @@ export function App() {
         })
       });
 
+      if (response.status === 401 || response.status === 403) {
+        alert('Sua sessão expirou. Faça login novamente.');
+        handleLogout();
+        return;
+      }
+
       if (!response.ok) {
         // Revert on server error
         setLicenses(prev => prev.map(l => l.id === license.id ? { ...l, active: license.active } : l));
-        const errData = await response.json();
-        alert(errData.error || 'Erro ao alterar status da licença.');
+        const errData = await safeJson(response);
+        alert(errData?.error || 'Erro ao alterar status da licença.');
       }
     } catch (err) {
       // Revert on network error
