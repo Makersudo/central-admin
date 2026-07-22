@@ -152,35 +152,14 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
     const data = decodeLicenseData(rawData);
     const now = new Date();
 
-    // 0. Verificação de Ciclo de 30 Dias (Plan Start Date)
-    if (data.plan_start_date) {
-      const startDate = new Date(data.plan_start_date);
-      const cycleDays = Number(data.billing_cycle_days || 30);
-      const diffMs = now.getTime() - startDate.getTime();
-      const diffDays = diffMs / (1000 * 60 * 60 * 24);
-
-      if (diffDays > cycleDays) {
-        const nextCycleExpiry = data.expires_at ? new Date(data.expires_at) : new Date(startDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
-        if (now >= nextCycleExpiry) {
-          return ok(res, {
-            active: false,
-            status: 'suspended',
-            message: 'Ciclo de 30 dias do plano encerrado. Entre em contato com o suporte para renovação.',
-            supportContact: data.support_contact,
-            reason: 'cycle_expired'
-          });
-        }
-      }
-    }
-
-    // 1. Verificação de expiração por data/hora
-    if (data.expires_at && now >= new Date(data.expires_at)) {
+    // 1. Verificação de chave desativada manualmente (Prioridade Máxima)
+    if (!data.active) {
       return ok(res, {
         active: false,
         status: 'suspended',
-        message: 'Licença expirada. Entre em contato com o suporte para renovação.',
+        message: data.message || 'Plataforma suspensa por pendências financeiras.',
         supportContact: data.support_contact,
-        reason: 'expired'
+        reason: 'manual_block'
       });
     }
 
@@ -204,18 +183,35 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
       });
     }
 
-    // 3. Verificação de chave desativada manualmente
-    if (!data.active) {
-      if (data.scheduled_unblock_at && now >= new Date(data.scheduled_unblock_at)) {
-        // Liberado por agendamento de desbloqueio
-      } else {
-        return ok(res, {
-          active: false,
-          status: 'suspended',
-          message: data.message || 'Plataforma suspensa por pendências financeiras.',
-          supportContact: data.support_contact,
-          reason: 'manual_block'
-        });
+    // 3. Verificação de expiração por data/hora do plano
+    if (data.expires_at && now >= new Date(data.expires_at)) {
+      return ok(res, {
+        active: false,
+        status: 'suspended',
+        message: 'Licença expirada. Entre em contato com o suporte para renovação.',
+        supportContact: data.support_contact,
+        reason: 'expired'
+      });
+    }
+
+    // 4. Verificação de Ciclo de 30 Dias (Plan Start Date)
+    if (data.plan_start_date) {
+      const startDate = new Date(data.plan_start_date);
+      const cycleDays = Number(data.billing_cycle_days || 30);
+      const diffMs = now.getTime() - startDate.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+      if (diffDays > cycleDays) {
+        const nextCycleExpiry = data.expires_at ? new Date(data.expires_at) : new Date(startDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
+        if (now >= nextCycleExpiry) {
+          return ok(res, {
+            active: false,
+            status: 'suspended',
+            message: 'Ciclo de 30 dias do plano encerrado. Entre em contato com o suporte para renovação.',
+            supportContact: data.support_contact,
+            reason: 'cycle_expired'
+          });
+        }
       }
     }
 
