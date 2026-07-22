@@ -38,6 +38,9 @@ function decodeLicenseData(row: any) {
       if (meta.scheduled_unblock_at !== undefined) result.scheduled_unblock_at = meta.scheduled_unblock_at;
       if (meta.plan_start_date !== undefined) result.plan_start_date = meta.plan_start_date;
       if (meta.billing_cycle_days !== undefined) result.billing_cycle_days = meta.billing_cycle_days;
+      if (meta.payment_status !== undefined) result.payment_status = meta.payment_status;
+      if (meta.plan_price !== undefined) result.plan_price = meta.plan_price;
+      if (meta.last_payment_date !== undefined) result.last_payment_date = meta.last_payment_date;
     } catch (e) {
       console.warn("Failed to parse META json:", e);
     }
@@ -58,6 +61,9 @@ function parsePayload(body: any) {
   const scheduled_unblock_at = body.scheduled_unblock_at || body.scheduledUnblockAt || null;
   const plan_start_date = body.plan_start_date || body.planStartDate || null;
   const billing_cycle_days = Number(body.billing_cycle_days || body.billingCycleDays || 30);
+  const payment_status = body.payment_status || body.paymentStatus || 'paid';
+  const plan_price = Number(body.plan_price ?? body.planPrice ?? 399.90);
+  const last_payment_date = body.last_payment_date || body.lastPaymentDate || null;
 
   const rawMessage = optionalString(body.message) ?? null;
   const meta = {
@@ -65,7 +71,10 @@ function parsePayload(body: any) {
     scheduled_block_at,
     scheduled_unblock_at,
     plan_start_date,
-    billing_cycle_days
+    billing_cycle_days,
+    payment_status,
+    plan_price,
+    last_payment_date
   };
 
   return {
@@ -79,7 +88,10 @@ function parsePayload(body: any) {
     scheduled_block_at,
     scheduled_unblock_at,
     plan_start_date,
-    billing_cycle_days
+    billing_cycle_days,
+    payment_status,
+    plan_price,
+    last_payment_date
   };
 }
 
@@ -232,7 +244,10 @@ async function safeSupabaseUpdate(supabase: any, table: string, id: string, payl
     scheduled_block_at: payload.scheduled_block_at ?? null,
     scheduled_unblock_at: payload.scheduled_unblock_at ?? null,
     plan_start_date: payload.plan_start_date ?? null,
-    billing_cycle_days: payload.billing_cycle_days ?? 30
+    billing_cycle_days: payload.billing_cycle_days ?? 30,
+    payment_status: payload.payment_status ?? 'paid',
+    plan_price: payload.plan_price ?? 399.90,
+    last_payment_date: payload.last_payment_date ?? null
   };
 
   const messageWithMeta = encodeMessageWithMeta(rawMsg, metaPayload);
@@ -300,7 +315,9 @@ licensesRouter.post('/admin/:id/renew', requireAuth, async (req, res) => {
       expires_at: newExpiresAt.toISOString(),
       scheduled_block_at: newExpiresAt.toISOString(),
       scheduled_unblock_at: null,
-      message: license.message
+      message: license.message,
+      payment_status: 'paid',
+      last_payment_date: now.toISOString()
     };
 
     const { data, error } = await safeSupabaseUpdate(supabase, 'catalog_licenses', id, renewPayload);
@@ -403,6 +420,15 @@ licensesRouter.put('/admin/:id', requireAuth, async (req, res) => {
     if (req.body.billing_cycle_days !== undefined || req.body.billingCycleDays !== undefined) {
       updateData.billing_cycle_days = Number(req.body.billing_cycle_days ?? req.body.billingCycleDays ?? 30);
     }
+    if (req.body.payment_status !== undefined || req.body.paymentStatus !== undefined) {
+      updateData.payment_status = req.body.payment_status ?? req.body.paymentStatus ?? 'paid';
+    }
+    if (req.body.plan_price !== undefined || req.body.planPrice !== undefined) {
+      updateData.plan_price = Number(req.body.plan_price ?? req.body.planPrice ?? 399.90);
+    }
+    if (req.body.last_payment_date !== undefined || req.body.lastPaymentDate !== undefined) {
+      updateData.last_payment_date = req.body.last_payment_date ?? req.body.lastPaymentDate ?? null;
+    }
 
     const { data, error } = await safeSupabaseUpdate(supabase, 'catalog_licenses', id, updateData);
 
@@ -433,7 +459,10 @@ licensesRouter.patch('/admin/:id', requireAuth, async (req, res) => {
       scheduled_block_at: decodedCurrent.scheduled_block_at ?? null,
       scheduled_unblock_at: decodedCurrent.scheduled_unblock_at ?? null,
       plan_start_date: decodedCurrent.plan_start_date ?? null,
-      billing_cycle_days: decodedCurrent.billing_cycle_days ?? 30
+      billing_cycle_days: decodedCurrent.billing_cycle_days ?? 30,
+      payment_status: decodedCurrent.payment_status ?? 'paid',
+      plan_price: decodedCurrent.plan_price ?? 399.90,
+      last_payment_date: decodedCurrent.last_payment_date ?? null
     };
 
     if (req.body.active !== undefined) updateData.active = Boolean(req.body.active);
@@ -458,6 +487,15 @@ licensesRouter.patch('/admin/:id', requireAuth, async (req, res) => {
     }
     if (req.body.billing_cycle_days !== undefined || req.body.billingCycleDays !== undefined) {
       updateData.billing_cycle_days = Number(req.body.billing_cycle_days ?? req.body.billingCycleDays ?? 30);
+    }
+    if (req.body.payment_status !== undefined || req.body.paymentStatus !== undefined) {
+      updateData.payment_status = req.body.payment_status ?? req.body.paymentStatus ?? 'paid';
+    }
+    if (req.body.plan_price !== undefined || req.body.planPrice !== undefined) {
+      updateData.plan_price = Number(req.body.plan_price ?? req.body.planPrice ?? 399.90);
+    }
+    if (req.body.last_payment_date !== undefined || req.body.lastPaymentDate !== undefined) {
+      updateData.last_payment_date = req.body.last_payment_date ?? req.body.lastPaymentDate ?? null;
     }
 
     const { data, error } = await safeSupabaseUpdate(supabase, 'catalog_licenses', id, updateData);
