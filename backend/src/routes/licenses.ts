@@ -307,6 +307,7 @@ licensesRouter.get('/admin/migrate-schema', async (_req, res) => {
     await client.end();
     return ok(res, { success: true, message: "Colunas criadas e schema recarregado com sucesso no Supabase!" });
   } catch (err: any) {
-    return handleError(res, err);
+    console.error("Erro no migrate-schema:", err);
+    return res.status(500).json({ error: err.message || String(err) });
   }
 });
