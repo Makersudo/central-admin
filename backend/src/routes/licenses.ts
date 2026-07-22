@@ -174,21 +174,78 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
   }
 });
 
-    return ok(res, {
-      active: true,
-      status: 'active',
-      message: 'Licença ativa e válida.',
-      clientName: data.client_name,
-    });
+// ─── ADMIN ROUTES ─────────────────────────────────────────────────────────────
 
+/** Helper resiliente para atualizar/inserir tratando colunas novas ainda não criadas no Supabase */
+async function safeSupabaseUpdate(supabase: any, table: string, id: string, payload: Record<string, any>) {
+  // 1. Tenta atualizar com todos os campos
+  let { data, error } = await supabase
+    .from(table)
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (!error) return { data, error: null };
+
+  // 2. Se falhou devido a colunas extras (PGRST204 ou erro de schema), remove campos novos e tenta com campos core
+  console.warn("Retrying Supabase update with core fields due to schema error:", error.message);
+  const corePayload: Record<string, any> = {};
+  const allowedCoreKeys = ['license_key', 'client_name', 'domain', 'active', 'message', 'support_contact'];
+  for (const k of allowedCoreKeys) {
+    if (payload[k] !== undefined) corePayload[k] = payload[k];
+  }
+
+  const result = await supabase
+    .from(table)
+    .update(corePayload)
+    .eq('id', id)
+    .select()
+    .single();
+
+  return result;
+}
+
+/** POST /api/licenses/admin/:id/renew — Renova a licença por +30 dias (registrado antes de :id wildcard) */
+licensesRouter.post('/admin/:id/renew', requireAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { id } = req.params;
+
+    const { data: license, error: fetchErr } = await supabase
+      .from('catalog_licenses')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr || !license) throw new ApiError(404, 'Licença não encontrada.');
+
+    const now = new Date();
+    const cycleDays = Number(license.billing_cycle_days || 30);
+    
+    const baseDate = (license.expires_at && new Date(license.expires_at) > now) 
+      ? new Date(license.expires_at) 
+      : now;
+    
+    const newExpiresAt = new Date(baseDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
+
+    const renewPayload = {
+      active: true,
+      expires_at: newExpiresAt.toISOString(),
+      scheduled_block_at: newExpiresAt.toISOString(),
+      scheduled_unblock_at: null,
+    };
+
+    const { data, error } = await safeSupabaseUpdate(supabase, 'catalog_licenses', id, renewPayload);
+
+    if (error) throw new ApiError(500, error.message);
+    return ok(res, data);
   } catch (err) {
     return handleError(res, err);
   }
 });
 
-// ─── ADMIN (PROTEGIDO) ────────────────────────────────────────────────────────
-
-/** GET /api/licenses/admin — Listar todas as licenças */
+/** GET /api/licenses/admin — Listar todas as licenças cadastradas */
 licensesRouter.get('/admin', requireAuth, async (_req, res) => {
   try {
     const supabase = getSupabaseAdmin();
@@ -209,7 +266,8 @@ licensesRouter.post('/admin', requireAuth, async (req, res) => {
   try {
     const supabase = getSupabaseAdmin();
     const payload = parsePayload(req.body);
-    const { data, error } = await supabase
+
+    let { data, error } = await supabase
       .from('catalog_licenses')
       .insert(payload)
       .select()
@@ -219,8 +277,28 @@ licensesRouter.post('/admin', requireAuth, async (req, res) => {
       if (error.code === '23505') {
         throw new ApiError(400, 'Esta chave de licença já está em uso.');
       }
-      throw new ApiError(500, error.message);
+      // Tenta fallback com campos core se colunas novas não existirem no Supabase
+      const corePayload: Record<string, any> = {
+        license_key: payload.license_key,
+        client_name: payload.client_name,
+        domain: payload.domain,
+        active: payload.active,
+        message: payload.message,
+        support_contact: payload.support_contact
+      };
+
+      const fallbackRes = await supabase
+        .from('catalog_licenses')
+        .insert(corePayload)
+        .select()
+        .single();
+
+      if (fallbackRes.error) {
+        throw new ApiError(500, fallbackRes.error.message);
+      }
+      data = fallbackRes.data;
     }
+
     return ok(res, data, 201);
   } catch (err) {
     return handleError(res, err);
@@ -251,13 +329,14 @@ licensesRouter.put('/admin/:id', requireAuth, async (req, res) => {
     if (req.body.scheduled_unblock_at !== undefined || req.body.scheduledUnblockAt !== undefined) {
       updateData.scheduled_unblock_at = req.body.scheduled_unblock_at ?? req.body.scheduledUnblockAt ?? null;
     }
+    if (req.body.plan_start_date !== undefined || req.body.planStartDate !== undefined) {
+      updateData.plan_start_date = req.body.plan_start_date ?? req.body.planStartDate ?? null;
+    }
+    if (req.body.billing_cycle_days !== undefined || req.body.billingCycleDays !== undefined) {
+      updateData.billing_cycle_days = Number(req.body.billing_cycle_days ?? req.body.billingCycleDays ?? 30);
+    }
 
-    const { data, error } = await supabase
-      .from('catalog_licenses')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
+    const { data, error } = await safeSupabaseUpdate(supabase, 'catalog_licenses', id, updateData);
 
     if (error) throw new ApiError(500, error.message);
     if (!data) throw new ApiError(404, 'Licença não encontrada.');
@@ -291,13 +370,14 @@ licensesRouter.patch('/admin/:id', requireAuth, async (req, res) => {
     if (req.body.scheduled_unblock_at !== undefined || req.body.scheduledUnblockAt !== undefined) {
       updateData.scheduled_unblock_at = req.body.scheduled_unblock_at ?? req.body.scheduledUnblockAt ?? null;
     }
+    if (req.body.plan_start_date !== undefined || req.body.planStartDate !== undefined) {
+      updateData.plan_start_date = req.body.plan_start_date ?? req.body.planStartDate ?? null;
+    }
+    if (req.body.billing_cycle_days !== undefined || req.body.billingCycleDays !== undefined) {
+      updateData.billing_cycle_days = Number(req.body.billing_cycle_days ?? req.body.billingCycleDays ?? 30);
+    }
 
-    const { data, error } = await supabase
-      .from('catalog_licenses')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
+    const { data, error } = await safeSupabaseUpdate(supabase, 'catalog_licenses', id, updateData);
 
     if (error) throw new ApiError(500, error.message);
     if (!data) throw new ApiError(404, 'Licença não encontrada.');
@@ -319,50 +399,6 @@ licensesRouter.delete('/admin/:id', requireAuth, async (req, res) => {
 
     if (error) throw new ApiError(500, error.message);
     return ok(res, { deleted: true });
-  } catch (err) {
-    return handleError(res, err);
-  }
-});
-
-/** POST /api/licenses/admin/:id/renew — Renova a licença por +30 dias */
-licensesRouter.post('/admin/:id/renew', requireAuth, async (req, res) => {
-  try {
-    const supabase = getSupabaseAdmin();
-    const { id } = req.params;
-
-    const { data: license, error: fetchErr } = await supabase
-      .from('catalog_licenses')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (fetchErr || !license) throw new ApiError(404, 'Licença não encontrada.');
-
-    const now = new Date();
-    const cycleDays = Number(license.billing_cycle_days || 30);
-    
-    // Se a licença já expirou no passado, renova a partir de HOJE + 30 dias
-    // Se a licença ainda vence no futuro, soma +30 dias ao vencimento atual
-    const baseDate = (license.expires_at && new Date(license.expires_at) > now) 
-      ? new Date(license.expires_at) 
-      : now;
-    
-    const newExpiresAt = new Date(baseDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
-
-    const { data, error } = await supabase
-      .from('catalog_licenses')
-      .update({
-        active: true,
-        expires_at: newExpiresAt.toISOString(),
-        scheduled_block_at: newExpiresAt.toISOString(),
-        scheduled_unblock_at: null,
-      })
-      .eq('id', id)
-      .select('*')
-      .single();
-
-    if (error) throw new ApiError(500, error.message);
-    return ok(res, data);
   } catch (err) {
     return handleError(res, err);
   }

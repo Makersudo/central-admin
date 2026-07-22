@@ -279,7 +279,18 @@ export function App() {
     }
   };
 
+  const safeJson = async (res: Response) => {
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+
   const handleRenewLicense = async (id: string) => {
+    // Optimistic UI: ativa a licença imediatamente na tabela
+    setLicenses(prev => prev.map(l => l.id === id ? { ...l, active: true } : l));
+
     try {
       const response = await fetch(`${apiUrl}/api/licenses/admin/${id}/renew`, {
         method: 'POST',
@@ -289,14 +300,21 @@ export function App() {
       });
 
       if (response.ok) {
-        fetchLicenses();
+        const data = await safeJson(response);
+        if (data) {
+          setLicenses(prev => prev.map(l => l.id === id ? data : l));
+        } else {
+          fetchLicenses();
+        }
       } else {
-        const errData = await response.json();
-        alert(errData.error || 'Erro ao renovar plano do cliente.');
+        const errData = await safeJson(response);
+        alert(errData?.error || 'Erro ao renovar plano do cliente no servidor.');
+        fetchLicenses();
       }
     } catch (err) {
       console.error(err);
       alert('Erro de conexão ao renovar plano.');
+      fetchLicenses();
     }
   };
 
