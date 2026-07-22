@@ -39,13 +39,15 @@ export function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fetchingLicenses, setFetchingLicenses] = useState(true);
   const [error, setError] = useState('');
   const [licenses, setLicenses] = useState<License[]>([]);
   const [search, setSearch] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Estados dos Modais
+  // Estados dos Modais e Abas
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalTab, setModalTab] = useState<'info' | 'license' | 'schedule'>('info');
   const [editingLicense, setEditingLicense] = useState<License | null>(null);
   
   // Campos do Formulário
@@ -107,6 +109,7 @@ export function App() {
   };
 
   const fetchLicenses = async () => {
+    setFetchingLicenses(true);
     try {
       const response = await fetch(`${apiUrl}/api/licenses/admin`, {
         headers: {
@@ -125,6 +128,8 @@ export function App() {
       setLicenses(data);
     } catch (err) {
       console.error(err);
+    } finally {
+      setFetchingLicenses(false);
     }
   };
 
@@ -160,6 +165,7 @@ export function App() {
     setFormExpiresAt('');
     setFormScheduledBlockAt('');
     setFormScheduledUnblockAt('');
+    setModalTab('info');
     setIsModalOpen(true);
     generateRandomKey();
   };
@@ -175,6 +181,7 @@ export function App() {
     setFormExpiresAt(toInputDateTime(license.expires_at));
     setFormScheduledBlockAt(toInputDateTime(license.scheduled_block_at));
     setFormScheduledUnblockAt(toInputDateTime(license.scheduled_unblock_at));
+    setModalTab('info');
     setIsModalOpen(true);
   };
 
@@ -232,6 +239,10 @@ export function App() {
   };
 
   const toggleLicenseActive = async (license: License) => {
+    const newActiveState = !license.active;
+    // Optimistic UI update
+    setLicenses(prev => prev.map(l => l.id === license.id ? { ...l, active: newActiveState } : l));
+
     try {
       const response = await fetch(`${apiUrl}/api/licenses/admin/${license.id}`, {
         method: 'PATCH',
@@ -240,17 +251,19 @@ export function App() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          active: !license.active
+          active: newActiveState
         })
       });
 
-      if (response.ok) {
-        fetchLicenses();
-      } else {
+      if (!response.ok) {
+        // Revert on server error
+        setLicenses(prev => prev.map(l => l.id === license.id ? { ...l, active: license.active } : l));
         const errData = await response.json();
         alert(errData.error || 'Erro ao alterar status da licença.');
       }
     } catch (err) {
+      // Revert on network error
+      setLicenses(prev => prev.map(l => l.id === license.id ? { ...l, active: license.active } : l));
       console.error(err);
       alert('Erro de conexão ao alterar status da licença.');
     }
@@ -473,7 +486,28 @@ export function App() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredLicenses.length === 0 ? (
+                {fetchingLicenses ? (
+                  [1, 2, 3].map(i => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="p-4">
+                        <div className="h-4 bg-slate-200 rounded w-32 mb-2"></div>
+                        <div className="h-3 bg-slate-100 rounded w-24"></div>
+                      </td>
+                      <td className="p-4">
+                        <div className="h-6 bg-slate-200 rounded-lg w-36"></div>
+                      </td>
+                      <td className="p-4">
+                        <div className="h-4 bg-slate-100 rounded w-28"></div>
+                      </td>
+                      <td className="p-4 text-center">
+                        <div className="h-6 bg-slate-200 rounded-full w-20 mx-auto"></div>
+                      </td>
+                      <td className="p-4 text-right">
+                        <div className="h-8 bg-slate-100 rounded-lg w-16 ml-auto"></div>
+                      </td>
+                    </tr>
+                  ))
+                ) : filteredLicenses.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-12 text-center text-slate-400">
                       <Building className="w-12 h-12 mx-auto mb-3 opacity-25" />
@@ -561,89 +595,154 @@ export function App() {
         </section>
       </main>
 
-      {/* Modal Criar/Editar */}
+      {/* Modal Criar/Editar com Abas */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm select-none">
           <div className="w-full max-w-lg bg-white border border-slate-200 rounded-3xl p-6 md:p-8 space-y-6 relative max-h-[90vh] overflow-y-auto shadow-2xl">
             <div>
-              <h3 className="text-lg font-bold text-slate-850">{editingLicense ? 'Editar Cliente' : 'Novo Cliente'}</h3>
-              <p className="text-xs text-slate-400 mt-1">Preencha as configurações de controle de licença.</p>
+              <h3 className="text-lg font-bold text-slate-800">{editingLicense ? 'Editar Cliente' : 'Novo Cliente'}</h3>
+              <p className="text-xs text-slate-400 mt-1">Configure o controle de acesso e agendamentos.</p>
+            </div>
+
+            {/* Navegação por Abas do Modal */}
+            <div className="flex border-b border-slate-100 gap-1 pb-1">
+              <button
+                type="button"
+                onClick={() => setModalTab('info')}
+                className={`pb-2 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer ${
+                  modalTab === 'info' 
+                    ? 'border-indigo-600 text-indigo-600' 
+                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                🏢 1. Dados da Loja
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('license')}
+                className={`pb-2 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer ${
+                  modalTab === 'license' 
+                    ? 'border-indigo-600 text-indigo-600' 
+                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                🔑 2. Licença & Status
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('schedule')}
+                className={`pb-2 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer ${
+                  modalTab === 'schedule' 
+                    ? 'border-indigo-600 text-indigo-600' 
+                    : 'border-transparent text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                ⏰ 3. Agendamento
+              </button>
             </div>
 
             <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Nome da Loja / Empresa</label>
-                <input
-                  type="text"
-                  required
-                  value={formClientName}
-                  onChange={e => setFormClientName(e.target.value)}
-                  placeholder="Ex: Boutique da Moda"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white"
-                />
-              </div>
+              {/* Aba 1: Dados da Loja */}
+              {modalTab === 'info' && (
+                <div className="space-y-4 animate-fade-in">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Nome da Loja / Empresa *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formClientName}
+                      onChange={e => setFormClientName(e.target.value)}
+                      placeholder="Ex: Boutique da Moda"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Domínio / Subdomínio (Opcional)</label>
-                <input
-                  type="text"
-                  value={formDomain}
-                  onChange={e => setFormDomain(e.target.value)}
-                  placeholder="Ex: boutiquedamoda.com.br"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Chave de Licença (.env)</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    required
-                    value={formLicenseKey}
-                    onChange={e => setFormLicenseKey(e.target.value)}
-                    placeholder="LIC-..."
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white font-mono font-bold"
-                  />
-                  <button
-                    type="button"
-                    onClick={generateRandomKey}
-                    className="bg-slate-100 border border-slate-200 hover:bg-slate-200 text-xs font-bold text-slate-600 px-4 py-3 rounded-2xl transition-colors cursor-pointer"
-                  >
-                    Gerar
-                  </button>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Domínio / Subdomínio (Opcional)</label>
+                    <input
+                      type="text"
+                      value={formDomain}
+                      onChange={e => setFormDomain(e.target.value)}
+                      placeholder="Ex: boutiquedamoda.com.br"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Link do WhatsApp Suporte (Ex: clique no aviso)</label>
-                <input
-                  type="url"
-                  value={formSupportContact}
-                  onChange={e => setFormSupportContact(e.target.value)}
-                  placeholder="https://wa.me/55..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white"
-                />
-              </div>
+              {/* Aba 2: Licença & Status */}
+              {modalTab === 'license' && (
+                <div className="space-y-4 animate-fade-in">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Chave de Licença (.env)</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        required
+                        value={formLicenseKey}
+                        onChange={e => setFormLicenseKey(e.target.value)}
+                        placeholder="LIC-..."
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white font-mono font-bold"
+                      />
+                      <button
+                        type="button"
+                        onClick={generateRandomKey}
+                        className="bg-slate-100 border border-slate-200 hover:bg-slate-200 text-xs font-bold text-slate-600 px-4 py-3 rounded-2xl transition-colors cursor-pointer"
+                      >
+                        Gerar
+                      </button>
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Mensagem de Bloqueio personalizada</label>
-                <textarea
-                  value={formMessage}
-                  onChange={e => setFormMessage(e.target.value)}
-                  rows={3}
-                  placeholder="Texto que aparecerá na tela do cliente se for bloqueado..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white resize-none"
-                />
-              </div>
+                  <div className="flex items-center justify-between border border-slate-100 p-3 rounded-2xl bg-slate-50">
+                    <span className="text-xs font-bold text-slate-700">Status Inicial da Plataforma</span>
+                    <button
+                      type="button"
+                      onClick={() => setFormActive(!formActive)}
+                      className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider border cursor-pointer transition-all ${
+                        formActive 
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-600' 
+                          : 'bg-red-50 border-red-200 text-red-600'
+                      }`}
+                    >
+                      {formActive ? 'Liberado' : 'Suspenso'}
+                    </button>
+                  </div>
 
-              {/* Seção de Agendamento por Data e Hora */}
-              <div className="border-t border-slate-100 pt-4 space-y-4">
-                <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-indigo-500" /> Programação por Data e Hora
-                </p>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Link do WhatsApp Suporte (Ex: clique no aviso)</label>
+                    <input
+                      type="url"
+                      value={formSupportContact}
+                      onChange={e => setFormSupportContact(e.target.value)}
+                      placeholder="https://wa.me/55..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white"
+                    />
+                  </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Mensagem de Bloqueio personalizada</label>
+                    <textarea
+                      value={formMessage}
+                      onChange={e => setFormMessage(e.target.value)}
+                      rows={3}
+                      placeholder="Texto que aparecerá na tela do cliente se for bloqueado..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Aba 3: Programação por Data & Hora */}
+              {modalTab === 'schedule' && (
+                <div className="space-y-4 animate-fade-in">
+                  <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-3.5 text-xs text-indigo-700">
+                    <p className="font-bold flex items-center gap-1.5 mb-1">
+                      <Clock className="w-4 h-4 text-indigo-600" /> Programação Automatizada
+                    </p>
+                    <p className="text-[11px] text-indigo-600/80">Configure datas e horários para que o sistema execute o bloqueio ou liberação de forma autônoma.</p>
+                  </div>
+
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-widest text-purple-600 mb-1.5">Agendar Bloqueio Automático</label>
                     <input
@@ -663,35 +762,20 @@ export function App() {
                       className="w-full bg-blue-50/50 border border-blue-200 rounded-2xl px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500"
                     />
                   </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-1.5">Data de Expiração / Validade da Licença</label>
+                    <input
+                      type="datetime-local"
+                      value={formExpiresAt}
+                      onChange={e => setFormExpiresAt(e.target.value)}
+                      className="w-full bg-amber-50/50 border border-amber-200 rounded-2xl px-4 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
                 </div>
+              )}
 
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-1.5">Data de Expiração / Validade da Licença</label>
-                  <input
-                    type="datetime-local"
-                    value={formExpiresAt}
-                    onChange={e => setFormExpiresAt(e.target.value)}
-                    className="w-full bg-amber-50/50 border border-amber-200 rounded-2xl px-4 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between border-t border-slate-100 pt-4">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Ativação Inicial</span>
-                <button
-                  type="button"
-                  onClick={() => setFormActive(!formActive)}
-                  className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider border cursor-pointer ${
-                    formActive 
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-600' 
-                      : 'bg-red-50 border-red-200 text-red-600'
-                  }`}
-                >
-                  {formActive ? 'Liberado' : 'Suspenso'}
-                </button>
-              </div>
-
-              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+              <div className="flex justify-between items-center border-t border-slate-100 pt-4">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -699,19 +783,29 @@ export function App() {
                 >
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="bg-gradient-to-r from-indigo-600 to-blue-500 text-xs font-bold text-white px-5 py-3 rounded-2xl hover:opacity-95 active:scale-95 transition-all cursor-pointer"
-                >
-                  {loading ? 'Salvando...' : 'Salvar Cliente'}
-                </button>
+                <div className="flex gap-2">
+                  {modalTab !== 'schedule' ? (
+                    <button
+                      type="button"
+                      onClick={() => setModalTab(modalTab === 'info' ? 'license' : 'schedule')}
+                      className="bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 px-5 py-3 rounded-2xl transition-all cursor-pointer"
+                    >
+                      Próximo →
+                    </button>
+                  ) : null}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="bg-gradient-to-r from-indigo-600 to-blue-500 text-xs font-bold text-white px-5 py-3 rounded-2xl hover:opacity-95 active:scale-95 transition-all cursor-pointer shadow-md shadow-indigo-200"
+                  >
+                    {loading ? 'Salvando...' : 'Salvar Cliente'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }
