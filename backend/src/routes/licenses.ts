@@ -148,15 +148,25 @@ licensesRouter.post('/admin', requireAuth, async (req, res) => {
   }
 });
 
-/** PUT /api/licenses/admin/:id — Atualizar licença completa */
+/** PUT /api/licenses/admin/:id — Atualizar licença */
 licensesRouter.put('/admin/:id', requireAuth, async (req, res) => {
   try {
     const supabase = getSupabaseAdmin();
     const { id } = req.params;
-    const payload = parsePayload(req.body);
+    
+    const updateData: Record<string, any> = {};
+    if (req.body.active !== undefined) updateData.active = Boolean(req.body.active);
+    if (req.body.clientName || req.body.client_name) updateData.client_name = req.body.clientName || req.body.client_name;
+    if (req.body.licenseKey || req.body.license_key) updateData.license_key = req.body.licenseKey || req.body.license_key;
+    if (req.body.domain !== undefined) updateData.domain = req.body.domain;
+    if (req.body.message !== undefined) updateData.message = req.body.message;
+    if (req.body.supportContact !== undefined || req.body.support_contact !== undefined) {
+      updateData.support_contact = req.body.supportContact ?? req.body.support_contact;
+    }
+
     const { data, error } = await supabase
       .from('catalog_licenses')
-      .update(payload)
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
