@@ -32,6 +32,8 @@ function parsePayload(body: any) {
     expires_at:           body.expires_at || body.expiresAt || null,
     scheduled_block_at:   body.scheduled_block_at || body.scheduledBlockAt || null,
     scheduled_unblock_at: body.scheduled_unblock_at || body.scheduledUnblockAt || null,
+    plan_start_date:      body.plan_start_date || body.planStartDate || null,
+    billing_cycle_days:   Number(body.billing_cycle_days || body.billingCycleDays || 30),
   };
 }
 
@@ -91,6 +93,27 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
 
     const now = new Date();
 
+    // 0. Verificação de Ciclo de 30 Dias (Plan Start Date)
+    if (data.plan_start_date) {
+      const startDate = new Date(data.plan_start_date);
+      const cycleDays = Number(data.billing_cycle_days || 30);
+      const diffMs = now.getTime() - startDate.getTime();
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+      if (diffDays > cycleDays) {
+        const nextCycleExpiry = data.expires_at ? new Date(data.expires_at) : new Date(startDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
+        if (now >= nextCycleExpiry) {
+          return ok(res, {
+            active: false,
+            status: 'suspended',
+            message: 'Ciclo de 30 dias do plano encerrado. Entre em contato com o suporte para renovação.',
+            supportContact: data.support_contact,
+            reason: 'cycle_expired'
+          });
+        }
+      }
+    }
+
     // 1. Verificação de expiração por data/hora
     if (data.expires_at && now >= new Date(data.expires_at)) {
       return ok(res, {
@@ -136,6 +159,20 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
         });
       }
     }
+
+    return ok(res, {
+      active: true,
+      status: 'active',
+      clientName: data.client_name,
+      domain: data.domain,
+      expiresAt: data.expires_at,
+      planStartDate: data.plan_start_date,
+      billingCycleDays: data.billing_cycle_days || 30
+    });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
 
     return ok(res, {
       active: true,
@@ -282,6 +319,50 @@ licensesRouter.delete('/admin/:id', requireAuth, async (req, res) => {
 
     if (error) throw new ApiError(500, error.message);
     return ok(res, { deleted: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+/** POST /api/licenses/admin/:id/renew — Renova a licença por +30 dias */
+licensesRouter.post('/admin/:id/renew', requireAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { id } = req.params;
+
+    const { data: license, error: fetchErr } = await supabase
+      .from('catalog_licenses')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr || !license) throw new ApiError(404, 'Licença não encontrada.');
+
+    const now = new Date();
+    const cycleDays = Number(license.billing_cycle_days || 30);
+    
+    // Se a licença já expirou no passado, renova a partir de HOJE + 30 dias
+    // Se a licença ainda vence no futuro, soma +30 dias ao vencimento atual
+    const baseDate = (license.expires_at && new Date(license.expires_at) > now) 
+      ? new Date(license.expires_at) 
+      : now;
+    
+    const newExpiresAt = new Date(baseDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
+
+    const { data, error } = await supabase
+      .from('catalog_licenses')
+      .update({
+        active: true,
+        expires_at: newExpiresAt.toISOString(),
+        scheduled_block_at: newExpiresAt.toISOString(),
+        scheduled_unblock_at: null,
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) throw new ApiError(500, error.message);
+    return ok(res, data);
   } catch (err) {
     return handleError(res, err);
   }
