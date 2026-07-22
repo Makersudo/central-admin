@@ -212,6 +212,34 @@ export function App() {
       billing_cycle_days: Number(formBillingCycleDays || 30)
     };
 
+    // Item Otimista (feedback visual instantâneo)
+    const tempId = editingLicense ? editingLicense.id : 'temp-' + Date.now();
+    const optimisticItem: License = {
+      id: tempId,
+      license_key: formLicenseKey,
+      client_name: formClientName,
+      domain: formDomain || null,
+      active: formActive,
+      message: formMessage || null,
+      support_contact: formSupportContact || null,
+      created_at: editingLicense ? editingLicense.created_at : new Date().toISOString(),
+      expires_at: payload.expires_at,
+      scheduled_block_at: payload.scheduled_block_at,
+      scheduled_unblock_at: payload.scheduled_unblock_at,
+      plan_start_date: payload.plan_start_date,
+      billing_cycle_days: payload.billing_cycle_days
+    };
+
+    // ⚡ Fecha o modal INSTANTANEAMENTE (0ms)
+    setIsModalOpen(false);
+
+    // ⚡ Atualiza a tabela INSTANTANEAMENTE no frontend
+    if (editingLicense) {
+      setLicenses(prev => prev.map(l => l.id === editingLicense.id ? optimisticItem : l));
+    } else {
+      setLicenses(prev => [optimisticItem, ...prev]);
+    }
+
     try {
       let response;
       if (editingLicense) {
@@ -235,14 +263,17 @@ export function App() {
       }
 
       if (!response.ok) {
+        fetchLicenses();
         const errData = await response.json();
-        throw new Error(errData.error || 'Erro ao salvar licença.');
+        alert(errData.error || 'Erro ao salvar licença no servidor.');
+      } else {
+        const savedData = await response.json();
+        setLicenses(prev => prev.map(l => l.id === tempId ? (savedData.id ? savedData : l) : l));
       }
-
-      setIsModalOpen(false);
-      fetchLicenses();
     } catch (err: any) {
-      setError(err.message || 'Ocorreu um erro.');
+      fetchLicenses();
+      console.error(err);
+      alert('Erro de conexão ao salvar licença.');
     } finally {
       setLoading(false);
     }
