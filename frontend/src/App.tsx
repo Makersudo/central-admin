@@ -847,16 +847,44 @@ export function App() {
               {/* Aba 3: Programação por Data & Hora */}
               {modalTab === 'schedule' && (
                 <div className="space-y-4 animate-fade-in">
-                  <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-3.5 text-xs text-indigo-700">
-                    <p className="font-bold flex items-center gap-1.5 mb-1">
-                      <Clock className="w-4 h-4 text-indigo-600" /> Programação de Plano e Ciclos
-                    </p>
-                    <p className="text-[11px] text-indigo-600/80">Ao definir a data de início do plano, o sistema calcula o ciclo de 30 dias para o próximo vencimento e bloqueio.</p>
+                  <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-3.5 text-xs text-indigo-700 flex justify-between items-start">
+                    <div>
+                      <p className="font-bold flex items-center gap-1.5 mb-1">
+                        <Clock className="w-4 h-4 text-indigo-600" /> Programação de Plano e Ciclos
+                      </p>
+                      <p className="text-[11px] text-indigo-600/80">Ao definir a data de início do plano, o sistema calcula o ciclo de 30 dias para o próximo vencimento e bloqueio.</p>
+                    </div>
+                    {(formPlanStartDate || formScheduledBlockAt || formScheduledUnblockAt || formExpiresAt) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormPlanStartDate('');
+                          setFormScheduledBlockAt('');
+                          setFormScheduledUnblockAt('');
+                          setFormExpiresAt('');
+                        }}
+                        className="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-700 text-[10px] font-bold rounded-lg transition-colors cursor-pointer shrink-0 ml-2"
+                        title="Limpar todos os agendamentos"
+                      >
+                        Limpar Todas
+                      </button>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-1.5">📅 Data de Início do Plano</label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-[10px] font-bold uppercase tracking-widest text-indigo-600">📅 Data de Início do Plano</label>
+                        {formPlanStartDate && (
+                          <button
+                            type="button"
+                            onClick={() => setFormPlanStartDate('')}
+                            className="text-[10px] font-bold text-red-500 hover:text-red-700 hover:underline cursor-pointer"
+                          >
+                            ✕ Limpar
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="datetime-local"
                         value={formPlanStartDate}
@@ -889,7 +917,18 @@ export function App() {
 
                   <div className="border-t border-slate-100 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-widest text-purple-600 mb-1.5">Agendar Bloqueio Automático</label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-[10px] font-bold uppercase tracking-widest text-purple-600">Agendar Bloqueio Automático</label>
+                        {formScheduledBlockAt && (
+                          <button
+                            type="button"
+                            onClick={() => setFormScheduledBlockAt('')}
+                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800 hover:underline cursor-pointer"
+                          >
+                            ✕ Limpar
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="datetime-local"
                         value={formScheduledBlockAt}
@@ -899,7 +938,18 @@ export function App() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-1.5">Agendar Desbloqueio Automático</label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-[10px] font-bold uppercase tracking-widest text-blue-600">Agendar Desbloqueio Automático</label>
+                        {formScheduledUnblockAt && (
+                          <button
+                            type="button"
+                            onClick={() => setFormScheduledUnblockAt('')}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                          >
+                            ✕ Limpar
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="datetime-local"
                         value={formScheduledUnblockAt}
@@ -910,7 +960,18 @@ export function App() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-1.5">Data de Expiração / Validade do Plano</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-[10px] font-bold uppercase tracking-widest text-amber-600">Data de Expiração / Validade do Plano</label>
+                      {formExpiresAt && (
+                        <button
+                          type="button"
+                          onClick={() => setFormExpiresAt('')}
+                          className="text-[10px] font-bold text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
+                        >
+                          ✕ Limpar
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="datetime-local"
                       value={formExpiresAt}
