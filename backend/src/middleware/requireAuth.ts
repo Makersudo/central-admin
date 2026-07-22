@@ -28,7 +28,10 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
 
     // Verifica autorização de privilégio (apenas e-mail admin cadastrado é permitido)
     const { env } = await import('../config/env.js');
-    if (user.email !== env.adminEmail) {
+    const targetAdminEmail = (env.adminEmail || '').toLowerCase().trim();
+    const userEmail = (user.email || '').toLowerCase().trim();
+
+    if (!userEmail || !targetAdminEmail || userEmail !== targetAdminEmail) {
       throw new ApiError(403, 'Acesso não autorizado: Privilégios administrativos insuficientes.');
     }
 
