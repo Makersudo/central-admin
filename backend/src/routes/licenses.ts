@@ -23,12 +23,15 @@ const validateRateLimit = rateLimit({
 
 function parsePayload(body: any) {
   return {
-    license_key:     requireString(body.licenseKey ?? body.license_key, 'licenseKey'),
-    client_name:     requireString(body.clientName ?? body.client_name, 'clientName'),
-    domain:          optionalString(body.domain) ?? null,
-    active:          Boolean(body.active ?? true),
-    message:         optionalString(body.message) ?? null,
-    support_contact: optionalString(body.supportContact ?? body.support_contact) ?? null,
+    license_key:          requireString(body.licenseKey ?? body.license_key, 'licenseKey'),
+    client_name:          requireString(body.clientName ?? body.client_name, 'clientName'),
+    domain:               optionalString(body.domain) ?? null,
+    active:               Boolean(body.active ?? true),
+    message:              optionalString(body.message) ?? null,
+    support_contact:      optionalString(body.supportContact ?? body.support_contact) ?? null,
+    expires_at:           body.expires_at || body.expiresAt || null,
+    scheduled_block_at:   body.scheduled_block_at || body.scheduledBlockAt || null,
+    scheduled_unblock_at: body.scheduled_unblock_at || body.scheduledUnblockAt || null,
   };
 }
 
@@ -86,13 +89,52 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
       });
     }
 
-    if (!data.active) {
+    const now = new Date();
+
+    // 1. Verificação de expiração por data/hora
+    if (data.expires_at && now >= new Date(data.expires_at)) {
       return ok(res, {
         active: false,
         status: 'suspended',
-        message: data.message || 'Plataforma suspensa por pendências financeiras.',
+        message: 'Licença expirada. Entre em contato com o suporte para renovação.',
         supportContact: data.support_contact,
+        reason: 'expired'
       });
+    }
+
+    // 2. Verificação de agendamento de bloqueio por data/hora
+    let isScheduledBlocked = false;
+    if (data.scheduled_block_at && now >= new Date(data.scheduled_block_at)) {
+      if (data.scheduled_unblock_at && new Date(data.scheduled_unblock_at) > new Date(data.scheduled_block_at) && now >= new Date(data.scheduled_unblock_at)) {
+        isScheduledBlocked = false;
+      } else {
+        isScheduledBlocked = true;
+      }
+    }
+
+    if (isScheduledBlocked) {
+      return ok(res, {
+        active: false,
+        status: 'suspended',
+        message: data.message || 'Plataforma suspensa conforme bloqueio agendado.',
+        supportContact: data.support_contact,
+        reason: 'scheduled_block'
+      });
+    }
+
+    // 3. Verificação de chave desativada manualmente
+    if (!data.active) {
+      if (data.scheduled_unblock_at && now >= new Date(data.scheduled_unblock_at)) {
+        // Liberado por agendamento de desbloqueio
+      } else {
+        return ok(res, {
+          active: false,
+          status: 'suspended',
+          message: data.message || 'Plataforma suspensa por pendências financeiras.',
+          supportContact: data.support_contact,
+          reason: 'manual_block'
+        });
+      }
     }
 
     return ok(res, {
@@ -163,6 +205,15 @@ licensesRouter.put('/admin/:id', requireAuth, async (req, res) => {
     if (req.body.supportContact !== undefined || req.body.support_contact !== undefined) {
       updateData.support_contact = req.body.supportContact ?? req.body.support_contact;
     }
+    if (req.body.expires_at !== undefined || req.body.expiresAt !== undefined) {
+      updateData.expires_at = req.body.expires_at ?? req.body.expiresAt ?? null;
+    }
+    if (req.body.scheduled_block_at !== undefined || req.body.scheduledBlockAt !== undefined) {
+      updateData.scheduled_block_at = req.body.scheduled_block_at ?? req.body.scheduledBlockAt ?? null;
+    }
+    if (req.body.scheduled_unblock_at !== undefined || req.body.scheduledUnblockAt !== undefined) {
+      updateData.scheduled_unblock_at = req.body.scheduled_unblock_at ?? req.body.scheduledUnblockAt ?? null;
+    }
 
     const { data, error } = await supabase
       .from('catalog_licenses')
@@ -193,6 +244,15 @@ licensesRouter.patch('/admin/:id', requireAuth, async (req, res) => {
     if (req.body.message !== undefined) updateData.message = req.body.message;
     if (req.body.supportContact !== undefined || req.body.support_contact !== undefined) {
       updateData.support_contact = req.body.supportContact ?? req.body.support_contact;
+    }
+    if (req.body.expires_at !== undefined || req.body.expiresAt !== undefined) {
+      updateData.expires_at = req.body.expires_at ?? req.body.expiresAt ?? null;
+    }
+    if (req.body.scheduled_block_at !== undefined || req.body.scheduledBlockAt !== undefined) {
+      updateData.scheduled_block_at = req.body.scheduled_block_at ?? req.body.scheduledBlockAt ?? null;
+    }
+    if (req.body.scheduled_unblock_at !== undefined || req.body.scheduledUnblockAt !== undefined) {
+      updateData.scheduled_unblock_at = req.body.scheduled_unblock_at ?? req.body.scheduledUnblockAt ?? null;
     }
 
     const { data, error } = await supabase

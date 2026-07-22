@@ -15,7 +15,9 @@ import {
   Check, 
   Building,
   DollarSign,
-  AlertCircle
+  AlertCircle,
+  Clock,
+  Calendar
 } from 'lucide-react';
 
 interface License {
@@ -27,6 +29,9 @@ interface License {
   message: string | null;
   support_contact: string | null;
   created_at: string;
+  expires_at?: string | null;
+  scheduled_block_at?: string | null;
+  scheduled_unblock_at?: string | null;
 }
 
 export function App() {
@@ -50,6 +55,9 @@ export function App() {
   const [formMessage, setFormMessage] = useState('');
   const [formSupportContact, setFormSupportContact] = useState('');
   const [formActive, setFormActive] = useState(true);
+  const [formExpiresAt, setFormExpiresAt] = useState('');
+  const [formScheduledBlockAt, setFormScheduledBlockAt] = useState('');
+  const [formScheduledUnblockAt, setFormScheduledUnblockAt] = useState('');
 
   const apiUrl = import.meta.env.VITE_CENTRAL_API_URL || 'http://localhost:3001';
 
@@ -120,6 +128,18 @@ export function App() {
     }
   };
 
+  const toInputDateTime = (isoStr?: string | null) => {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return '';
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch {
+      return '';
+    }
+  };
+
   const generateRandomKey = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let result = 'LIC-';
@@ -137,6 +157,9 @@ export function App() {
     setFormMessage('Plataforma suspensa por pendências financeiras. Entre em contato com o suporte para reativação.');
     setFormSupportContact('');
     setFormActive(true);
+    setFormExpiresAt('');
+    setFormScheduledBlockAt('');
+    setFormScheduledUnblockAt('');
     setIsModalOpen(true);
     generateRandomKey();
   };
@@ -149,6 +172,9 @@ export function App() {
     setFormMessage(license.message || '');
     setFormSupportContact(license.support_contact || '');
     setFormActive(license.active);
+    setFormExpiresAt(toInputDateTime(license.expires_at));
+    setFormScheduledBlockAt(toInputDateTime(license.scheduled_block_at));
+    setFormScheduledUnblockAt(toInputDateTime(license.scheduled_unblock_at));
     setIsModalOpen(true);
   };
 
@@ -163,7 +189,10 @@ export function App() {
       domain: formDomain || null,
       active: formActive,
       message: formMessage || null,
-      supportContact: formSupportContact || null
+      supportContact: formSupportContact || null,
+      expires_at: formExpiresAt ? new Date(formExpiresAt).toISOString() : null,
+      scheduled_block_at: formScheduledBlockAt ? new Date(formScheduledBlockAt).toISOString() : null,
+      scheduled_unblock_at: formScheduledUnblockAt ? new Date(formScheduledUnblockAt).toISOString() : null,
     };
 
     try {
@@ -456,7 +485,24 @@ export function App() {
                     <tr key={lic.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="p-4">
                         <p className="font-bold text-slate-800 text-sm">{lic.client_name}</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">Criado em {new Date(lic.created_at).toLocaleDateString('pt-BR')}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5 mb-1">Criado em {new Date(lic.created_at).toLocaleDateString('pt-BR')}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {lic.expires_at && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-700 border border-amber-200" title="Validade / Expiração">
+                              <Calendar className="w-2.5 h-2.5" /> Expira: {new Date(lic.expires_at).toLocaleString('pt-BR')}
+                            </span>
+                          )}
+                          {lic.scheduled_block_at && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium bg-purple-50 text-purple-700 border border-purple-200" title="Bloqueio Agendado">
+                              <Clock className="w-2.5 h-2.5" /> Bloqueio: {new Date(lic.scheduled_block_at).toLocaleString('pt-BR')}
+                            </span>
+                          )}
+                          {lic.scheduled_unblock_at && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-200" title="Desbloqueio Agendado">
+                              <Clock className="w-2.5 h-2.5" /> Desbloqueio: {new Date(lic.scheduled_unblock_at).toLocaleString('pt-BR')}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
@@ -589,6 +635,45 @@ export function App() {
                   placeholder="Texto que aparecerá na tela do cliente se for bloqueado..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white resize-none"
                 />
+              </div>
+
+              {/* Seção de Agendamento por Data e Hora */}
+              <div className="border-t border-slate-100 pt-4 space-y-4">
+                <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-indigo-500" /> Programação por Data e Hora
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-purple-600 mb-1.5">Agendar Bloqueio Automático</label>
+                    <input
+                      type="datetime-local"
+                      value={formScheduledBlockAt}
+                      onChange={e => setFormScheduledBlockAt(e.target.value)}
+                      className="w-full bg-purple-50/50 border border-purple-200 rounded-2xl px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-blue-600 mb-1.5">Agendar Desbloqueio Automático</label>
+                    <input
+                      type="datetime-local"
+                      value={formScheduledUnblockAt}
+                      onChange={e => setFormScheduledUnblockAt(e.target.value)}
+                      className="w-full bg-blue-50/50 border border-blue-200 rounded-2xl px-3 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-1.5">Data de Expiração / Validade da Licença</label>
+                  <input
+                    type="datetime-local"
+                    value={formExpiresAt}
+                    onChange={e => setFormExpiresAt(e.target.value)}
+                    className="w-full bg-amber-50/50 border border-amber-200 rounded-2xl px-4 py-2.5 text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-between border-t border-slate-100 pt-4">
