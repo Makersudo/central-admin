@@ -2,13 +2,14 @@ import { Client } from 'pg';
 
 export default async function handler(req: any, res: any) {
   try {
-    const dbUrl = "postgres://postgres:75487319%40fF@db.augeggvlijscaebcggvk.supabase.co:5432/postgres";
     const client = new Client({
-      connectionString: dbUrl,
-      ssl: { rejectUnauthorized: false },
-      // Force Node pg to use IPv6 family 6
-      family: 6
-    } as any);
+      host: '2600:1f13:5fd:be00:104a:7e89:17c5:6d81',
+      port: 5432,
+      user: 'postgres',
+      password: '75487319@fF',
+      database: 'postgres',
+      ssl: { rejectUnauthorized: false }
+    });
 
     await client.connect();
     await client.query(`
@@ -19,7 +20,7 @@ export default async function handler(req: any, res: any) {
     `);
     await client.end();
 
-    return res.status(200).json({ success: true, message: "Colunas criadas e PostgREST schema recarregado com sucesso via Vercel IPv6!" });
+    return res.status(200).json({ success: true, message: "Colunas criadas e PostgREST schema recarregado via IP 2600:1f13:5fd:be00:104a:7e89:17c5:6d81!" });
   } catch (err: any) {
     console.error(err);
     return res.status(500).json({ error: err.message || String(err) });
