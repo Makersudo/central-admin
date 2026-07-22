@@ -21,19 +21,65 @@ const validateRateLimit = rateLimit({
   keyPrefix: 'validate'
 });
 
+const META_TAG = '||META:';
+
+function decodeLicenseData(row: any) {
+  if (!row) return row;
+  const result = { ...row };
+  let rawMsg = result.message || '';
+
+  if (rawMsg.includes(META_TAG)) {
+    const parts = rawMsg.split(META_TAG);
+    result.message = parts[0].trim() || null;
+    try {
+      const meta = JSON.parse(parts[1]);
+      if (meta.expires_at !== undefined) result.expires_at = meta.expires_at;
+      if (meta.scheduled_block_at !== undefined) result.scheduled_block_at = meta.scheduled_block_at;
+      if (meta.scheduled_unblock_at !== undefined) result.scheduled_unblock_at = meta.scheduled_unblock_at;
+      if (meta.plan_start_date !== undefined) result.plan_start_date = meta.plan_start_date;
+      if (meta.billing_cycle_days !== undefined) result.billing_cycle_days = meta.billing_cycle_days;
+    } catch (e) {
+      console.warn("Failed to parse META json:", e);
+    }
+  }
+
+  return result;
+}
+
+function encodeMessageWithMeta(userMessage: string | null | undefined, metaPayload: Record<string, any>) {
+  const cleanMsg = (userMessage || '').replace(/\|\|META:[\s\S]*/, '').trim();
+  const metaJson = JSON.stringify(metaPayload);
+  return `${cleanMsg} ${META_TAG}${metaJson}`.trim();
+}
+
 function parsePayload(body: any) {
+  const expires_at = body.expires_at || body.expiresAt || null;
+  const scheduled_block_at = body.scheduled_block_at || body.scheduledBlockAt || null;
+  const scheduled_unblock_at = body.scheduled_unblock_at || body.scheduledUnblockAt || null;
+  const plan_start_date = body.plan_start_date || body.planStartDate || null;
+  const billing_cycle_days = Number(body.billing_cycle_days || body.billingCycleDays || 30);
+
+  const rawMessage = optionalString(body.message) ?? null;
+  const meta = {
+    expires_at,
+    scheduled_block_at,
+    scheduled_unblock_at,
+    plan_start_date,
+    billing_cycle_days
+  };
+
   return {
     license_key:          requireString(body.licenseKey ?? body.license_key, 'licenseKey'),
     client_name:          requireString(body.clientName ?? body.client_name, 'clientName'),
     domain:               optionalString(body.domain) ?? null,
     active:               Boolean(body.active ?? true),
-    message:              optionalString(body.message) ?? null,
+    message:              encodeMessageWithMeta(rawMessage, meta),
     support_contact:      optionalString(body.supportContact ?? body.support_contact) ?? null,
-    expires_at:           body.expires_at || body.expiresAt || null,
-    scheduled_block_at:   body.scheduled_block_at || body.scheduledBlockAt || null,
-    scheduled_unblock_at: body.scheduled_unblock_at || body.scheduledUnblockAt || null,
-    plan_start_date:      body.plan_start_date || body.planStartDate || null,
-    billing_cycle_days:   Number(body.billing_cycle_days || body.billingCycleDays || 30),
+    expires_at,
+    scheduled_block_at,
+    scheduled_unblock_at,
+    plan_start_date,
+    billing_cycle_days
   };
 }
 
@@ -75,7 +121,7 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
+    const { data: rawData, error } = await supabase
       .from('catalog_licenses')
       .select('*')
       .eq('license_key', key)
@@ -83,7 +129,7 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
 
     if (error) throw new ApiError(500, error.message);
     
-    if (!data) {
+    if (!rawData) {
       return ok(res, {
         active: false,
         status: 'not_found',
@@ -91,6 +137,7 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
       });
     }
 
+    const data = decodeLicenseData(rawData);
     const now = new Date();
 
     // 0. Verificação de Ciclo de 30 Dias (Plan Start Date)
@@ -178,23 +225,37 @@ licensesRouter.get('/validate', validateRateLimit, async (req, res) => {
 
 /** Helper resiliente para atualizar/inserir tratando colunas novas ainda não criadas no Supabase */
 async function safeSupabaseUpdate(supabase: any, table: string, id: string, payload: Record<string, any>) {
+  // Extrai meta e aplica ao campo message
+  const rawMsg = payload.message || '';
+  const metaPayload = {
+    expires_at: payload.expires_at ?? null,
+    scheduled_block_at: payload.scheduled_block_at ?? null,
+    scheduled_unblock_at: payload.scheduled_unblock_at ?? null,
+    plan_start_date: payload.plan_start_date ?? null,
+    billing_cycle_days: payload.billing_cycle_days ?? 30
+  };
+
+  const messageWithMeta = encodeMessageWithMeta(rawMsg, metaPayload);
+
   // 1. Tenta atualizar com todos os campos
   let { data, error } = await supabase
     .from(table)
-    .update(payload)
+    .update({ ...payload, message: messageWithMeta })
     .eq('id', id)
     .select()
     .single();
 
-  if (!error) return { data, error: null };
+  if (!error) return { data: decodeLicenseData(data), error: null };
 
   // 2. Se falhou devido a colunas extras (PGRST204 ou erro de schema), remove campos novos e tenta com campos core
-  console.warn("Retrying Supabase update with core fields due to schema error:", error.message);
+  console.warn("Retrying Supabase update with core fields + metadata message:", error.message);
   const corePayload: Record<string, any> = {};
-  const allowedCoreKeys = ['license_key', 'client_name', 'domain', 'active', 'message', 'support_contact'];
+  const allowedCoreKeys = ['license_key', 'client_name', 'domain', 'active', 'support_contact'];
   for (const k of allowedCoreKeys) {
     if (payload[k] !== undefined) corePayload[k] = payload[k];
   }
+
+  corePayload.message = messageWithMeta;
 
   const result = await supabase
     .from(table)
@@ -202,6 +263,10 @@ async function safeSupabaseUpdate(supabase: any, table: string, id: string, payl
     .eq('id', id)
     .select()
     .single();
+
+  if (result.data) {
+    result.data = decodeLicenseData(result.data);
+  }
 
   return result;
 }
@@ -212,21 +277,22 @@ licensesRouter.post('/admin/:id/renew', requireAuth, async (req, res) => {
     const supabase = getSupabaseAdmin();
     const { id } = req.params;
 
-    const { data: license, error: fetchErr } = await supabase
+    const { data: rawLicense, error: fetchErr } = await supabase
       .from('catalog_licenses')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (fetchErr || !license) throw new ApiError(404, 'Licença não encontrada.');
+    if (fetchErr || !rawLicense) throw new ApiError(404, 'Licença não encontrada.');
 
+    const license = decodeLicenseData(rawLicense);
     const now = new Date();
     const cycleDays = Number(license.billing_cycle_days || 30);
-    
+
     const baseDate = (license.expires_at && new Date(license.expires_at) > now) 
       ? new Date(license.expires_at) 
       : now;
-    
+
     const newExpiresAt = new Date(baseDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
 
     const renewPayload = {
@@ -234,6 +300,7 @@ licensesRouter.post('/admin/:id/renew', requireAuth, async (req, res) => {
       expires_at: newExpiresAt.toISOString(),
       scheduled_block_at: newExpiresAt.toISOString(),
       scheduled_unblock_at: null,
+      message: license.message
     };
 
     const { data, error } = await safeSupabaseUpdate(supabase, 'catalog_licenses', id, renewPayload);
@@ -255,7 +322,8 @@ licensesRouter.get('/admin', requireAuth, async (_req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw new ApiError(500, error.message);
-    return ok(res, data ?? []);
+    const decoded = (data ?? []).map(decodeLicenseData);
+    return ok(res, decoded);
   } catch (err) {
     return handleError(res, err);
   }
@@ -277,7 +345,7 @@ licensesRouter.post('/admin', requireAuth, async (req, res) => {
       if (error.code === '23505') {
         throw new ApiError(400, 'Esta chave de licença já está em uso.');
       }
-      // Tenta fallback com campos core se colunas novas não existirem no Supabase
+
       const corePayload: Record<string, any> = {
         license_key: payload.license_key,
         client_name: payload.client_name,
@@ -299,7 +367,7 @@ licensesRouter.post('/admin', requireAuth, async (req, res) => {
       data = fallbackRes.data;
     }
 
-    return ok(res, data, 201);
+    return ok(res, decodeLicenseData(data), 201);
   } catch (err) {
     return handleError(res, err);
   }
@@ -351,8 +419,23 @@ licensesRouter.patch('/admin/:id', requireAuth, async (req, res) => {
   try {
     const supabase = getSupabaseAdmin();
     const { id } = req.params;
-    
-    const updateData: Record<string, any> = {};
+
+    const { data: currentLic } = await supabase
+      .from('catalog_licenses')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    const decodedCurrent = currentLic ? decodeLicenseData(currentLic) : {};
+
+    const updateData: Record<string, any> = {
+      expires_at: decodedCurrent.expires_at ?? null,
+      scheduled_block_at: decodedCurrent.scheduled_block_at ?? null,
+      scheduled_unblock_at: decodedCurrent.scheduled_unblock_at ?? null,
+      plan_start_date: decodedCurrent.plan_start_date ?? null,
+      billing_cycle_days: decodedCurrent.billing_cycle_days ?? 30
+    };
+
     if (req.body.active !== undefined) updateData.active = Boolean(req.body.active);
     if (req.body.clientName || req.body.client_name) updateData.client_name = req.body.clientName || req.body.client_name;
     if (req.body.licenseKey || req.body.license_key) updateData.license_key = req.body.licenseKey || req.body.license_key;
