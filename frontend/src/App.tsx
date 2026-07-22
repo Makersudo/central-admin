@@ -198,6 +198,17 @@ export function App() {
     setLoading(true);
     setError('');
 
+    const safeIsoDate = (val?: string | null) => {
+      if (!val || !val.trim()) return null;
+      try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return null;
+        return d.toISOString();
+      } catch {
+        return null;
+      }
+    };
+
     const payload = {
       licenseKey: formLicenseKey,
       clientName: formClientName,
@@ -205,10 +216,10 @@ export function App() {
       active: formActive,
       message: formMessage || null,
       supportContact: formSupportContact || null,
-      expires_at: formExpiresAt ? new Date(formExpiresAt).toISOString() : null,
-      scheduled_block_at: formScheduledBlockAt ? new Date(formScheduledBlockAt).toISOString() : null,
-      scheduled_unblock_at: formScheduledUnblockAt ? new Date(formScheduledUnblockAt).toISOString() : null,
-      plan_start_date: formPlanStartDate ? new Date(formPlanStartDate).toISOString() : null,
+      expires_at: safeIsoDate(formExpiresAt),
+      scheduled_block_at: safeIsoDate(formScheduledBlockAt),
+      scheduled_unblock_at: safeIsoDate(formScheduledUnblockAt),
+      plan_start_date: safeIsoDate(formPlanStartDate),
       billing_cycle_days: Number(formBillingCycleDays || 30)
     };
 
