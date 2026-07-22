@@ -286,28 +286,3 @@ licensesRouter.delete('/admin/:id', requireAuth, async (req, res) => {
     return handleError(res, err);
   }
 });
-
-/** GET /api/licenses/admin/migrate-schema — Executa migrations de coluna diretamente no Supabase */
-licensesRouter.get('/admin/migrate-schema', async (_req, res) => {
-  try {
-    const { Client } = await import('pg');
-    const dbUrl = "postgres://postgres:75487319%40fF@db.augeggvlijscaebcggvk.supabase.co:5432/postgres";
-    const client = new Client({
-      connectionString: dbUrl,
-      ssl: { rejectUnauthorized: false }
-    });
-
-    await client.connect();
-    await client.query(`
-      ALTER TABLE public.catalog_licenses ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
-      ALTER TABLE public.catalog_licenses ADD COLUMN IF NOT EXISTS scheduled_block_at TIMESTAMPTZ;
-      ALTER TABLE public.catalog_licenses ADD COLUMN IF NOT EXISTS scheduled_unblock_at TIMESTAMPTZ;
-      NOTIFY pgrst, 'reload schema';
-    `);
-    await client.end();
-    return ok(res, { success: true, message: "Colunas criadas e schema recarregado com sucesso no Supabase!" });
-  } catch (err: any) {
-    console.error("Erro no migrate-schema:", err);
-    return res.status(500).json({ error: err.message || String(err) });
-  }
-});
